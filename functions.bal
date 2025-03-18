@@ -1,24 +1,26 @@
-import ballerinax/azure.openai.chat;
-import ballerinax/azure.openai.embeddings;
+import ballerinax/openai.chat;
+import ballerinax/openai.embeddings;
 import ballerinax/pinecone.vector;
 
-final embeddings:Client embeddingsClient = check new (
-    config = {auth: {apiKey: AZURE_API_KEY}},
-    serviceUrl = AZURE_SERVICE_URL
-);
+embeddings:Client embeddingsClient = check new ({
+    auth: {
+        token: OPENAI_TOKEN
+    }
+});
 
 final vector:Client pineconeVectorClient = check new ({
     apiKey: PINECONE_API_KEY
 }, serviceUrl = PINECONE_URL);
 
-final chat:Client chatClient = check new (
-    config = {auth: {apiKey: AZURE_API_KEY}},
-    serviceUrl = AZURE_SERVICE_URL
-);
+final chat:Client openAIChat = check new({
+    auth: {
+        token: OPENAI_TOKEN
+    }
+});
 
 final string embedding = "text-embed";
 
-isolated vector:QueryRequest queryRequest = {
+vector:QueryRequest queryRequest = {
     topK: 4,
     includeMetadata: true
 };
@@ -29,34 +31,29 @@ public type Metadata record {
 
 public type ChatResponseChoice record {|
     chat:ChatCompletionResponseMessage message?;
-    chat:ContentFilterChoiceResults content_filter_results?;
     int index?;
     string finish_reason?;
     anydata...;
 |};
 
-isolated function llmChat(string query) returns string|error {
-    lock {
-        float[] embeddingsFloat = check getEmbeddings(query);
-        queryRequest.vector = embeddingsFloat;
-        vector:QueryMatch[] matches = check retrieveData(queryRequest);
-        string context = check augment(matches);
-        string chatResponse = check generateText(query, context);
-        return chatResponse;
-    }
+function llmChat(string query) returns string|error {
+    float[] embeddingsFloat = check getEmbeddings(query);
+    queryRequest.vector = embeddingsFloat;
+    vector:QueryMatch[] matches = check retrieveData(queryRequest);
+    string context = check augment(matches);
+    string chatResponse = check generateText(query, context);
+    return chatResponse;
 }
 
-isolated function getEmbeddings(string query) returns float[]|error {
-    embeddings:Deploymentid_embeddings_body embeddingsBody = {input: query};
-    embeddings:Inline_response_200 embeddingsResult =
-            check embeddingsClient->/deployments/[embedding]/embeddings.post("2023-03-15-preview", embeddingsBody);
+function getEmbeddings(string query) returns float[]|error {
+    embeddings:CreateEmbeddingRequest req = {
+        model: "text-embedding-ada-002",
+        input: query
+    };
+    embeddings:CreateEmbeddingResponse embeddingsResult = check embeddingsClient->/embeddings.post(req);
 
-    decimal[] embeddingsDecimal = embeddingsResult.data[0].embedding;
-    float[] embeddingsFloat = [];
-    foreach decimal d in embeddingsDecimal {
-        embeddingsFloat.push(<float>d);
-    }
-    return embeddingsFloat;
+    float[] embeddings = embeddingsResult.data[0].embedding;
+    return embeddings;
 }
 
 isolated function retrieveData(vector:QueryRequest queryRequest) returns vector:QueryMatch[]|error {
@@ -81,14 +78,22 @@ isolated function generateText(string query, string context) returns string|erro
     string systemPrompt = string `You are an HR Policy Assistant that provides employees with accurate answers
         based on company HR policies.Your responses must be clear and strictly based on the provided context.
         ${context}`;
-    chat:CreateChatCompletionRequest chatRequest = {
-        messages: [
-            {role: "system", "content": systemPrompt},
-            {role: "user", "content": query}]
+
+    chat:CreateChatCompletionRequest request = {
+        model: "gpt-4o-mini",
+        messages: [{
+            "role": "system",
+            "content": systemPrompt
+        },
+        {
+            "role": "user",
+            "content": query
+        }
+        ]
     };
 
     chat:CreateChatCompletionResponse chatResult = 
-        check chatClient->/deployments/["gpt4o-mini"]/chat/completions.post("2023-12-01-preview", chatRequest);
+        check openAIChat->/chat/completions.post(request);
     ChatResponseChoice[] choices = check chatResult.choices.ensureType();
     string? chatResponse = choices[0].message?.content;
 
