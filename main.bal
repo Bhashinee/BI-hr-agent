@@ -8,7 +8,7 @@ http:Client albumClient = check new ("localhost:8080");
 service /hrRagAgent on hrRagAgentListener {
     resource function post chat(@http:Payload agent:ChatReqMessage request) returns agent:ChatRespMessage|error {
         string agentResponse = check llmChat(request.message);
-        agent:ChatRespMessage|error resp = albumClient->post("/xxx/yyy", {message: request});
+        agent:ChatRespMessage|error resp = albumClient->post("/xxx/yyy", request);
         return resp;
         // return {message: agentResponse};
     }
