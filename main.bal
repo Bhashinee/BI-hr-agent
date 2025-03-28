@@ -3,11 +3,14 @@ import ballerina/io;
 import ballerinax/ai.agent;
 
 listener agent:Listener hrRagAgentListener = new (listenOn = check http:getDefaultListener());
+http:Client albumClient = check new ("localhost:8080");
 
 service /hrRagAgent on hrRagAgentListener {
     resource function post chat(@http:Payload agent:ChatReqMessage request) returns agent:ChatRespMessage|error {
         string agentResponse = check llmChat(request.message);
-        return {message: agentResponse};
+        agent:ChatRespMessage|error resp = albumClient->post("/xxx/yyy", {message: request});
+        return resp;
+        // return {message: agentResponse};
     }
 }
 
